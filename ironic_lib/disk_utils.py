@@ -719,6 +719,37 @@ def _fix_gpt_structs(device, node_uuid):
         raise exception.InstanceDeployFailure(msg)
 
 
+def fix_gpt_partition(node_uuid, device, is_gpt_partitioned=None):
+    """Fix GPT partition
+
+    Exposing.
+
+    :param node_uuid: UUID of the Node.
+    :param device: The device path.
+    :raises: InstanceDeployFailure if exception is caught.
+    """
+    try:
+        LOG.error("fix_gpt_partition STARTING with %s" % is_gpt_partitioned)
+        if not is_gpt_partitioned:
+            is_gpt_partitioned = _is_disk_gpt_partitioned(device, node_uuid)
+        LOG.error("fix_gpt_partition found %s" % is_gpt_partitioned)
+
+        if is_gpt_partitioned:
+            LOG.error("fix_gpt_partition RUNNING")
+            _fix_gpt_structs(device, node_uuid)
+            create_option = '0:-%dMB:0' % MAX_CONFIG_DRIVE_SIZE_MB
+            utils.execute('sgdisk', '-n', create_option, device,
+                          run_as_root=True)
+    except Exception as e:
+        msg = (_('Failed to fix GPT partition on disk %(disk)s '
+                 'for node %(node)s. Error: %(error)s') %
+               {'disk': device, 'node': node_uuid, 'error': e})
+        LOG.error(msg)
+        raise exception.InstanceDeployFailure(msg)
+    finally:
+        LOG.error("fix_gpt_partition DONE")
+
+
 def create_config_drive_partition(node_uuid, device, configdrive):
     """Create a partition for config drive
 
@@ -759,10 +790,7 @@ def create_config_drive_partition(node_uuid, device, configdrive):
             cur_parts = set(part['number'] for part in list_partitions(device))
 
             if _is_disk_gpt_partitioned(device, node_uuid):
-                _fix_gpt_structs(device, node_uuid)
-                create_option = '0:-%dMB:0' % MAX_CONFIG_DRIVE_SIZE_MB
-                utils.execute('sgdisk', '-n', create_option, device,
-                              run_as_root=True)
+                fix_gpt_partition(device, node_uuid, True)
             else:
                 # Check if the disk has 4 partitions. The MBR based disk
                 # cannot have more than 4 partitions.
